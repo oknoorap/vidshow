@@ -1,4 +1,6 @@
 # vidshow
+[![NPM](https://nodei.co/npm/vidshow.png)](https://nodei.co/npm/vidshow/) [![Build Status](https://travis-ci.org/oknoorap/vidshow.svg?branch=master)](https://travis-ci.org/oknoorap/vidshow) 
+---
 `vidshow` is a simple cli-tool to generate a slideshow video using native FFMPEG.
 
 ## Install
