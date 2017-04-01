@@ -1,6 +1,6 @@
 {
   "name": "vidshow",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "CLI Tools to Create Slideshow Video",
   "main": "index.js",
   "preferGlobal": true,
