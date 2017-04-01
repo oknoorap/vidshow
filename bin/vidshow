@@ -1,0 +1,8 @@
+#!/usr/bin/env node
+
+require('commander')
+  .version(require('../package').version)
+  .usage('<command> [options]')
+  .command('init', 'generate a new project in folder')
+  .command('new', 'generate a new video from images')
+  .parse(process.argv)
