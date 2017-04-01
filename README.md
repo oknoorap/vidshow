@@ -44,5 +44,8 @@ You can see example project in `example` directory.
 * [ ] Using `node-fluent-ffmpeg`
 
 ## Release Notes
+### v0.1.9
+Add some documentation
+
 ### v0.1.8
 Move from private repo to public repo, add eslint, editorconfig and implement CI
