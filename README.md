@@ -38,7 +38,7 @@ Generate a new video from specified directory, prompts will be appears.
 You can see example project in `example` directory.
 
 ## Next Todo
-[ ] Implement `node-fluent-ffmpeg`
+* [ ] Using `node-fluent-ffmpeg`
 
 ## Release Notes
 ### v0.1.8
