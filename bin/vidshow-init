@@ -1,0 +1,130 @@
+#!/usr/bin/env node
+
+const inquirer = require('inquirer')
+const fs = require('fs')
+const path =  require('path')
+const mkdirp = require('mkdirp')
+const copy = require('ncp')
+const rootPath = path.resolve(__dirname, '..')
+const configPath = path.resolve(process.cwd(), '.vidshow')
+const fontConfigPath = path.resolve(rootPath, 'fonts.conf')
+const fontCwdPath = path.resolve(process.cwd(), 'fonts.conf')
+let config = {}
+
+// ncp config
+copy.limit = 16
+
+if (fs.existsSync(configPath)) {
+  config = JSON.parse(fs.readFileSync(configPath, 'ascii'))
+}
+
+const copyScript = () => {
+  const scriptFile = 'script.js'
+  return new Promise((resolve, reject) => {
+    copy(path.join(rootPath, scriptFile), path.join(process.cwd(), scriptFile), err => {
+      if (err) reject(err)
+      resolve()
+    })
+  })
+}
+
+const copyFont = font => {
+  return new Promise(resolve => {
+    let fontConfig = fs.readFileSync(fontConfigPath, 'ascii')
+    fontConfig = fontConfig.replace(/\{\{font\}\}/g, font)
+    fs.writeFileSync(fontCwdPath, fontConfig)
+    resolve()
+  })
+}
+
+const questions = [
+  {
+    type: 'text',
+    name: 'ffmpeg',
+    message: 'FFMPEG Directory',
+    default: config.ffmpeg || '',
+    validate (ffmpeg) {
+      const exists = fs.existsSync(ffmpeg)
+      const stats = fs.statSync(ffmpeg)
+      if (!exists || !stats.isFile()) {
+        return 'Not a binary file.'
+      }
+      return true
+    },
+    filter (dir) {
+      return path.resolve(dir)
+    }
+  },
+
+  {
+    type: 'text',
+    name: 'music',
+    message: 'Random Music Directory',
+    default: config.music || '',
+    validate (music) {
+      const exists = fs.existsSync(music)
+      const stats = fs.statSync(music)
+      if (!exists || !stats.isDirectory()) {
+        return 'Not a directory.'
+      }
+
+      let musics = fs.readdirSync(music).filter(
+        item => ['.mp3'].includes(path.extname(item))
+      )
+
+      if (musics.length < 2) {
+        return 'Not enough music in directory'
+      }
+
+      return true
+    },
+    filter (dir) {
+      return path.resolve(dir)
+    }
+  },
+
+  {
+    type: 'text',
+    name: 'output',
+    message: 'Output Directory',
+    default: config.output || 'output',
+    validate (output) {
+      return output.length > 0
+    }
+  },
+
+  {
+    type: 'text',
+    name: 'font',
+    message: 'Font Directory (for subtitle)',
+    default: config.font || 'C:\\WINDOWS\\Fonts',
+    validate (font) {
+      const exists = fs.existsSync(font)
+      const stats = fs.statSync(font)
+      if (!exists || !stats.isDirectory()) {
+        return 'Not a directory.'
+      }
+      return true
+    },
+    filter (dir) {
+      return path.resolve(dir)
+    }
+  }
+]
+
+inquirer.prompt(questions).then(answer => {
+  const json = JSON.stringify(answer, true, 2)
+
+  copyScript()
+  .catch(err => {
+    console.log(err)
+  })
+  .then(copyFont(answer.font))
+  .catch(err => {
+    console.log(err)
+  })
+  .then(() => {
+    mkdirp.sync(path.join(process.cwd(), answer.output))
+    fs.writeFileSync(configPath, json)
+  })
+})

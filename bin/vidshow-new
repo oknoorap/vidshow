@@ -1,0 +1,374 @@
+#!/usr/bin/env node
+
+const inquirer = require('inquirer')
+const mkdirp = require('mkdirp')
+const fs = require('fs')
+const path = require('path')
+const rootPath = path.resolve(__dirname, '..')
+const configFile = path.join(process.cwd(), '.vidshow')
+const scriptFile = path.join(process.cwd(), 'script.js')
+const spawn = require('child_process').spawn
+const _ = require('lodash')
+const clear = require('clear')
+const ncp = require('ncp')
+const rmrf = require('rimraf')
+const moment = require('moment')
+
+const tmpdir = path.join(process.cwd(), '_tmp')
+const videoPath = path.join(tmpdir, 'video.mp4')
+const audioPath = path.join(tmpdir, 'audio.mp4')
+const finalPath = path.join(tmpdir, 'final.mp4')
+
+// create temporary dir
+mkdirp.sync(tmpdir)
+
+let config
+let beforeScript
+let queueScript
+let afterScript
+
+if (!fs.existsSync(configFile)) {
+  console.log('Config file not found')
+  process.exit(0)
+}
+
+if (fs.existsSync(scriptFile)) {
+  const script = require(scriptFile)
+  beforeScript = script.before
+  queueScript = script.queue
+  afterScript = script.after
+}
+
+config = fs.readFileSync(configFile, 'ascii')
+try {
+  config = JSON.parse(config)
+} catch (e) {
+  console.log('Invalid vidshow config')
+  process.exit(0)
+}
+
+const outputPath = path.resolve(path.join(config.output, moment(Date.now()).format('Y/MM/DD')))
+if (beforeScript) {
+  beforeScript()
+}
+
+const questions = [
+  {
+    type: 'text',
+    name: 'title',
+    message: 'Video Title',
+    validate (title) {
+      if (title.length <= 3) {
+        return 'Length is too short'
+      }
+      return true
+    }
+  },
+  
+  {
+    type: 'input',
+    name: 'duration',
+    message: 'Duration (each image)',
+    default: 5,
+    validate (value) {
+      const isNumber = value.toString().match(/[0-9]/i)
+      if (isNumber && value > 3) {
+        return true
+      }
+      return 'Should be a number and larger than 3 seconds'
+    }
+  },
+
+  {
+    type: 'text',
+    name: 'imgdir',
+    message: 'Image Directory',
+    validate (imgdir) {
+      const exists = fs.existsSync(imgdir)
+      const stats = fs.statSync(imgdir)
+      if (!exists || !stats.isDirectory()) {
+        return 'Not a directory.'
+      }
+      return true
+    },
+    filter (dir) {
+      return path.resolve(dir)
+    }
+  },
+  
+  {
+    type: 'confirm',
+    name: 'withSubtitle',
+    message: 'Load subtitles',
+    default: false
+  },
+
+  {
+    type: 'text',
+    name: 'subtitle',
+    message: 'Subtitle File (optional)',
+    default: '',
+    when (answer) {
+      return answer.withSubtitle
+    },
+    validate (subtitle) {
+      if (subtitle && subtitle.length > 0) {
+        const exists = fs.existsSync(subtitle)
+        const stats = fs.statSync(subtitle)
+        if (!exists || !stats.isFile()) {
+          return 'Not a subtitle file.'
+        }
+      }
+
+      return true
+    },
+    filter (dir) {
+      if (dir) {
+        return path.resolve(dir)
+      }
+      return dir
+    }
+  }
+]
+
+const timemarkToSeconds = timemark => {
+  if (typeof timemark === 'number') {
+    return timemark;
+  }
+
+  if (timemark.indexOf(':') === -1 && timemark.indexOf('.') >= 0) {
+    return Number(timemark);
+  }
+
+  var parts = timemark.split(':');
+
+  // add seconds
+  var secs = Number(parts.pop());
+
+  if (parts.length) {
+    // add minutes
+    secs += Number(parts.pop()) * 60;
+  }
+
+  if (parts.length) {
+    // add hours
+    secs += Number(parts.pop()) * 3600;
+  }
+
+  return secs;
+}
+
+const generateSubtitle = (items, subtitlePath) => {
+  clear(true)
+  console.log('Generating subtitle')
+  const subtitleFile = path.join(tmpdir, 'subtitle.ass')
+
+  const toDuration = time => {
+    const strArgs = {minimumIntegerDigits: 2, useGrouping:false}
+    let minutes = (Math.trunc(time/60)).toLocaleString('en-US', strArgs);
+    let seconds = (time % 60).toLocaleString('en-US', strArgs);
+    return `0:${minutes}:${seconds}`
+  }
+
+  const getDuration = index => {
+    let finish = 0
+    for (let i = 0; i <= index; i++) {
+      finish += items[i].duration
+    }
+
+    let start = finish - items[index].duration
+    return {
+      start: toDuration(start) + '.10',
+      finish: toDuration(finish) + '.00'
+    }
+  }
+  
+  if (subtitlePath) {
+    return new Promise((resolve, reject) => {
+      ncp(subtitlePath, subtitleFile, err => {
+        if (err) reject(err)
+        resolve()
+      })
+    })
+  }
+
+  let itemSubtitles = items.filter(item => item.subtitle)
+  if (!subtitlePath && itemSubtitles.length > 0) {
+    return new Promise((resolve, reject) => {
+      let subtitleTpl = fs.readFileSync(path.join(rootPath, 'subtitle.ass'), 'ascii')
+
+      subtitleTpl += items.map((item, index) => {
+        let { start, finish } = getDuration(index)
+        return `Dialogue: 0,${start},${finish},ArialStyle,NTP,0,0,0,,${item.subtitle}`
+      }).join("\n")
+
+      fs.writeFile(subtitleFile, subtitleTpl, err => {
+        if (err) reject(err)
+        resolve()
+      })
+    })
+  }
+}
+
+const runFfmpeg = ({ status, data }, args) => {
+  return new Promise(resolve => {
+    const video = spawn(config.ffmpeg, args, {
+      stdio: [process.stdin, 'pipe', 'pipe'],
+      env: {
+        FC_CONFIG_DIR: process.cwd(),
+        FONTCONFIG_PATH: process.cwd(),
+        FONTCONFIG_FILE: path.join(process.cwd(), 'fonts.conf')
+      }
+    });
+    video.stdout.on('data', data => {
+      // console.log(`stdout: ${data}`)
+    })
+    video.stderr.on('data', buffer => {
+      const progress = {}
+      const line  = buffer.toString().replace(/=\s+/g, '=').trim();
+      const progressParts = line.split(' ');
+
+      for(var i = 0; i < progressParts.length; i++) {
+        const progressSplit = progressParts[i].split('=', 2);
+        const key = progressSplit[0];
+        const value = progressSplit[1];
+        progress[key] = value;
+      }
+
+      if (progress.time && data.duration) {
+        let percent = (timemarkToSeconds(progress.time) / data.duration) * 100
+        if (percent > 100) {
+          percent = 100
+        }
+        clear(true)
+        console.log(status)
+        console.log('===========')
+        console.log(`Progress: ${parseFloat(percent).toFixed(1)}%`)
+      }
+
+      if (line.toLowerCase().indexOf('overwrite') > -1) {
+        console.log('Overwrite [y/N]?')
+      }
+    })
+    video.on('close', code => {
+      console.log(`Finish with code ${code}`);
+      resolve()
+    })
+  })
+}
+
+const cleanUp = (answer, items) => {
+  clear(true)
+  console.log(`Generating video ${answer.title}.mp4`)
+
+  mkdirp.sync(outputPath)
+  if (afterScript) {
+    afterScript(items, answer, outputPath)
+  }
+  return new Promise((resolve, reject) => {
+    ncp(path.join(tmpdir, 'final.mp4'), path.resolve(path.join(outputPath, `${answer.title}.mp4`)), err => {
+      if (err) reject(err)
+      inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'rmtmpdir',
+          message: 'Delete temporary folder'
+        }
+      ]).then(answer => {
+        if (answer.rmtmpdir) {
+          rmrf(tmpdir, err => {
+            if (err) reject(err)
+            resolve()
+          })
+        } else {
+          resolve()
+        }
+      })
+    })
+  })
+}
+
+inquirer.prompt(questions).then(answer => {
+  const items = []
+  const images = fs.readdirSync(answer.imgdir).filter(
+    item => ['.png', '.jpg'].includes(path.extname(item))
+  )
+
+  if (images.length < 2) {
+    console.log('Not enough images')
+    process.exit(0)
+  }
+
+  images.forEach(item => {
+    let _filename = path.resolve(answer.imgdir, item)
+    let _duration = answer.duration
+
+    if (!queueScript) items.push({ filename: _filename, duration: _duration })
+
+    let { subtitle, duration } = queueScript(_filename)
+    duration = duration || _duration
+    items.push({ subtitle, filename: _filename, duration })
+  })
+  
+  let duration = 0
+  items.forEach((item, index) => {
+    duration += item.duration
+  })
+
+  const videoArgs = []
+  items.forEach((item, index) => {
+    videoArgs.push('-loop')
+    videoArgs.push('1')
+    videoArgs.push('-t')
+    videoArgs.push(item.duration)
+    videoArgs.push('-i')
+    videoArgs.push(item.filename)
+  })
+  
+  const videoBlend = []
+  items.forEach((item, index) => {
+    if (index === 0) return
+    let arg = `[${index}:v][${index - 1}:v]blend=all_expr='A*(if(gte(T,0.5),1,T/0.5))+B*(1-(if(gte(T,0.5),1,T/0.5)))'[b${index}v];`
+    videoBlend.push(arg)
+  })
+  
+  const videoCombine = [`[0:v]`]
+  items.forEach((item, index) => {
+    if (index === 0) return
+    let arg = `[b${index}v]`
+    videoCombine.push(arg)
+  })
+  videoCombine.push(`concat=n=${items.length}:v=1:a=0,setsar=1,format=yuv420p[v]`)
+  videoBlend.push(videoCombine.join(''))
+  videoArgs.push(`-filter_complex`)
+  videoArgs.push(`${videoBlend.join('')}`)
+  videoArgs.push(`-map`)
+  videoArgs.push(`[v]`)
+  videoArgs.push(videoPath)
+  videoArgs.push(`-y`)
+  
+  // Get random audio
+  let randomAudio = _.sample(fs.readdirSync(config.music))
+  randomAudio = path.join(config.music, randomAudio)
+  const audioArgs = `-i ${videoPath} -i ${randomAudio} -c:v libx264 -r 30 -crf 23 -shortest ${audioPath} -y`.split(' ')
+  const finalArgs = `-i ${audioPath} -vf ass='_tmp/subtitle.ass' ${finalPath} -y`.split(' ')
+
+  runFfmpeg({ status: 'Converting videos', data: {duration} }, videoArgs)
+  .then(() => {
+    runFfmpeg({ status: 'Adding Music', data: {duration} }, audioArgs)
+    .then(() => {
+      generateSubtitle(items, answer.subtitle).catch(err => {
+        console.log(err)
+      }).then(() => {
+        runFfmpeg({ status: 'Adding Subtitle', data: {duration} }, finalArgs)
+        .then(() => {
+          cleanUp(answer, items).catch(err => {
+            console.log(err)
+          }).then(() => {
+            console.log('DONE')
+          })
+        })
+      })
+    })
+  })
+})
