@@ -1,5 +1,6 @@
 # vidshow
-[![NPM](https://nodei.co/npm/vidshow.png)](https://nodei.co/npm/vidshow/) [![Build Status](https://travis-ci.org/oknoorap/vidshow.svg?branch=master)](https://travis-ci.org/oknoorap/vidshow) 
+[![NPM](https://nodei.co/npm/vidshow.png)](https://nodei.co/npm/vidshow/)  
+[![GitHub tag](https://img.shields.io/github/tag/oknoorap/vidshow.svg)]() [![Build Status](https://travis-ci.org/oknoorap/vidshow.svg?branch=master)](https://travis-ci.org/oknoorap/vidshow) 
 ---
 `vidshow` is a simple cli-tool to generate a slideshow video using native FFMPEG.
 
@@ -43,5 +44,8 @@ You can see example project in `example` directory.
 * [ ] Using `node-fluent-ffmpeg`
 
 ## Release Notes
+### v0.1.9
+Add some documentation
+
 ### v0.1.8
 Move from private repo to public repo, add eslint, editorconfig and implement CI
