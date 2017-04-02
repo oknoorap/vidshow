@@ -44,3 +44,5 @@ You can see example project in [example](https://github.com/oknoorap/vidshow/tre
 ## Next Todo
 * [ ] Using `node-fluent-ffmpeg`
 
+## License
+MIT
