@@ -39,7 +39,7 @@ Generate a new video from specified directory, prompts will be appears.
 * **Subtitle** file will be appears if you load a subtitle.
 
 ## Example
-You can see example project in `example` directory.
+You can see example project in [example](https://github.com/oknoorap/vidshow/tree/develop/example) directory.
 
 ## Next Todo
 * [ ] Using `node-fluent-ffmpeg`
